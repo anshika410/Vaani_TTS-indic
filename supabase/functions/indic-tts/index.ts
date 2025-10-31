@@ -17,83 +17,78 @@ serve(async (req) => {
 
     const HUGGING_FACE_TOKEN = Deno.env.get('HUGGING_FACE_ACCESS_TOKEN');
     
-    if (!HUGGING_FACE_TOKEN) {
-      throw new Error('HUGGING_FACE_ACCESS_TOKEN not configured');
-    }
-
-    // Map language codes to AI4Bharat language codes
+    // Map language codes to voice settings
     const languageMap: { [key: string]: string } = {
-      'english': 'en',
-      'hindi': 'hi',
-      'tamil': 'ta',
-      'telugu': 'te',
-      'kannada': 'kn',
-      'malayalam': 'ml',
-      'bengali': 'bn',
-      'gujarati': 'gu',
-      'marathi': 'mr',
+      'english': 'en-IN',
+      'hindi': 'hi-IN',
+      'tamil': 'ta-IN',
+      'telugu': 'te-IN',
+      'kannada': 'kn-IN',
+      'malayalam': 'ml-IN',
+      'bengali': 'bn-IN',
+      'gujarati': 'gu-IN',
+      'marathi': 'mr-IN',
     };
 
-    const langCode = languageMap[language] || 'en';
+    const langCode = languageMap[language] || 'en-IN';
     
-    // Construct prompt for Indic Parler TTS
-    const genderPrefix = gender === 'male' ? 'A male voice' : 'A female voice';
-    const prompt = `${genderPrefix} speaks in ${language} with an Indian accent`;
-
-    console.log('Calling Hugging Face API with prompt:', prompt);
-
-    // Call Hugging Face Inference API for ai4bharat/indic-parler-tts
-    const response = await fetch(
-      'https://api-inference.huggingface.co/models/ai4bharat/indic-parler-tts',
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${HUGGING_FACE_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          inputs: text,
-          parameters: {
-            description: prompt,
-            language: langCode,
-          },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Hugging Face API error:', response.status, errorText);
+    // Try using a simpler, more accessible TTS model
+    if (HUGGING_FACE_TOKEN) {
+      console.log('Attempting TTS with Hugging Face');
       
-      // If model is loading, return a helpful message
-      if (response.status === 503) {
-        return new Response(
-          JSON.stringify({ 
-            error: 'Model is loading. Please try again in a few moments.',
-            loading: true 
-          }),
-          { 
-            status: 503,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      try {
+        // Use facebook/mms-tts which is more accessible and supports Indian languages
+        const modelId = `facebook/mms-tts-${language === 'english' ? 'eng' : langCode.split('-')[0]}`;
+        
+        const response = await fetch(
+          `https://api-inference.huggingface.co/models/${modelId}`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${HUGGING_FACE_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              inputs: text,
+            }),
           }
         );
+
+        if (response.ok) {
+          const audioBuffer = await response.arrayBuffer();
+          const base64Audio = btoa(
+            String.fromCharCode(...new Uint8Array(audioBuffer))
+          );
+
+          console.log('TTS generation successful with Hugging Face');
+
+          return new Response(
+            JSON.stringify({ 
+              audio: `data:audio/flac;base64,${base64Audio}`,
+              success: true,
+              method: 'huggingface'
+            }),
+            {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            }
+          );
+        } else {
+          console.log('Hugging Face TTS failed, falling back to browser TTS');
+        }
+      } catch (hfError) {
+        console.log('Hugging Face error, using fallback:', hfError);
       }
-      
-      throw new Error(`Hugging Face API error: ${response.status} - ${errorText}`);
     }
-
-    // Get audio data
-    const audioBuffer = await response.arrayBuffer();
-    const base64Audio = btoa(
-      String.fromCharCode(...new Uint8Array(audioBuffer))
-    );
-
-    console.log('TTS generation successful');
-
+    
+    // Fallback: Return language code for browser-based TTS
+    console.log('Using browser-based TTS fallback');
     return new Response(
       JSON.stringify({ 
-        audio: `data:audio/wav;base64,${base64Audio}`,
-        success: true 
+        useBrowserTTS: true,
+        langCode: langCode,
+        text: text,
+        success: true,
+        method: 'browser'
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

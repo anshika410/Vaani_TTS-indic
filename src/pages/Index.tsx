@@ -33,6 +33,28 @@ const Index = () => {
         return;
       }
 
+      // If using browser TTS
+      if (data?.useBrowserTTS) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = data.langCode;
+        utterance.rate = 0.9; // Slightly slower for clarity
+        
+        // Try to find an Indian voice
+        const voices = window.speechSynthesis.getVoices();
+        const preferredVoice = voices.find(voice => 
+          voice.lang.startsWith(data.langCode) || 
+          voice.lang.includes('IN')
+        );
+        
+        if (preferredVoice) {
+          utterance.voice = preferredVoice;
+        }
+        
+        window.speechSynthesis.speak(utterance);
+        return;
+      }
+
+      // If using server-generated audio
       if (data?.audio) {
         const audio = new Audio(data.audio);
         await audio.play();
