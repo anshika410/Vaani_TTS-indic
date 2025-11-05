@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { objects } from "@/data/objects";
 import { ObjectCard } from "@/components/ObjectCard";
 import { LanguageSelector } from "@/components/LanguageSelector";
@@ -10,10 +10,109 @@ import heroBg from "@/assets/hero-bg.jpg";
 const Index = () => {
   const [selectedLanguage, setSelectedLanguage] = useState("hindi");
   const [selectedGender, setSelectedGender] = useState<"male" | "female">("female");
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const { toast } = useToast();
+
+  // Load voices when component mounts
+  useEffect(() => {
+    const loadVoices = () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        const availableVoices = window.speechSynthesis.getVoices();
+        setVoices(availableVoices);
+        console.log('Available voices:', availableVoices);
+      }
+    };
+
+    // Initial load
+    loadVoices();
+
+    // Some browsers load voices asynchronously
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.onvoiceschanged = null;
+      }
+    };
+  }, []);
 
   const speakText = async (text: string) => {
     try {
+      // Try to use browser TTS directly for better compatibility
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        
+        // Set language based on selected language
+        const languageMap: { [key: string]: string } = {
+          'english': 'en-IN',
+          'hindi': 'hi-IN',
+          'tamil': 'ta-IN',
+          'telugu': 'te-IN',
+          'kannada': 'kn-IN',
+          'malayalam': 'ml-IN',
+          'bengali': 'bn-IN',
+          'gujarati': 'gu-IN',
+          'marathi': 'mr-IN',
+        };
+
+        const langCode = languageMap[selectedLanguage] || 'en-IN';
+        utterance.lang = langCode;
+        utterance.rate = 0.9; // Slightly slower for clarity
+
+        // Log available voices for debugging
+        console.log('Selected language:', selectedLanguage);
+        console.log('Selected gender:', selectedGender);
+        console.log('Target language code:', langCode);
+        console.log('Available voices:', voices);
+
+        // Filter voices by language
+        const languageVoices = voices.filter(voice => 
+          voice.lang === langCode || 
+          voice.lang.startsWith(langCode.split('-')[0]) ||
+          voice.lang.includes('IN')
+        );
+        
+        console.log('Language voices:', languageVoices);
+
+        // Try to find an appropriate voice based on language and gender
+        let preferredVoice = null;
+        
+        // First, try to find a voice that matches both language and gender
+        if (languageVoices.length > 0) {
+          // Look for gender-specific voices
+          if (selectedGender === "female") {
+            preferredVoice = languageVoices.find(voice => 
+              voice.name.toLowerCase().includes('female') || 
+              (!voice.name.toLowerCase().includes('male') && voice.name.toLowerCase().includes('female'))
+            );
+          } else {
+            preferredVoice = languageVoices.find(voice => 
+              voice.name.toLowerCase().includes('male')
+            );
+          }
+          
+          // If no gender-specific voice found, use the first available language voice
+          if (!preferredVoice) {
+            preferredVoice = languageVoices[0];
+          }
+        }
+
+        if (preferredVoice) {
+          utterance.voice = preferredVoice;
+          console.log('Selected voice:', preferredVoice.name);
+        } else {
+          console.log('No specific voice found, using default');
+        }
+
+        // Use type assertion to avoid TypeScript error
+        (window as any).speechSynthesis.speak(utterance);
+        console.log(`Speaking: ${text} in ${langCode} with ${selectedGender} voice`);
+        return;
+      }
+
+      // Fallback to Supabase function if browser TTS is not available
       const { data, error } = await supabase.functions.invoke('indic-tts', {
         body: {
           text,
@@ -33,24 +132,43 @@ const Index = () => {
         return;
       }
 
-      // If using browser TTS
-      if (data?.useBrowserTTS) {
+      // If using browser TTS from Supabase response
+      if (data?.useBrowserTTS && typeof window !== 'undefined' && 'speechSynthesis' in window) {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = data.langCode;
         utterance.rate = 0.9; // Slightly slower for clarity
         
-        // Try to find an Indian voice
-        const voices = window.speechSynthesis.getVoices();
-        const preferredVoice = voices.find(voice => 
+        // Try to find an Indian voice with gender preference
+        const languageVoices = voices.filter(voice => 
           voice.lang.startsWith(data.langCode) || 
           voice.lang.includes('IN')
         );
+        
+        let preferredVoice = null;
+        
+        if (languageVoices.length > 0) {
+          if (selectedGender === "female") {
+            preferredVoice = languageVoices.find(voice => 
+              voice.name.toLowerCase().includes('female') || 
+              (!voice.name.toLowerCase().includes('male') && voice.name.toLowerCase().includes('female'))
+            );
+          } else {
+            preferredVoice = languageVoices.find(voice => 
+              voice.name.toLowerCase().includes('male')
+            );
+          }
+          
+          if (!preferredVoice) {
+            preferredVoice = languageVoices[0];
+          }
+        }
         
         if (preferredVoice) {
           utterance.voice = preferredVoice;
         }
         
-        window.speechSynthesis.speak(utterance);
+        // Use type assertion to avoid TypeScript error
+        (window as any).speechSynthesis.speak(utterance);
         return;
       }
 

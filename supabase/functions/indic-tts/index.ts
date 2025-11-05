@@ -1,19 +1,50 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+// Supabase Edge Function for Indic TTS
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-serve(async (req) => {
+export default async function handler(req: Request) {
+  // Handle preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  // Ensure we only handle POST requests
+  if (req.method !== 'POST') {
+    return new Response(
+      JSON.stringify({ 
+        error: 'Method not allowed',
+        success: false,
+        message: 'Only POST requests are supported'
+      }),
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 405
+      }
+    );
   }
 
   try {
     const { text, language, gender } = await req.json();
     
     console.log('TTS Request:', { text, language, gender });
+
+    // Validate inputs
+    if (!text || typeof text !== 'string') {
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid text',
+          success: false,
+          message: 'Text is required and must be a string'
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 400
+        }
+      );
+    }
 
     // Map language codes to voice settings
     const languageMap: { [key: string]: string } = {
@@ -57,10 +88,10 @@ serve(async (req) => {
       JSON.stringify({ 
         useBrowserTTS: true,
         langCode: 'en-IN',
-        text: 'Error',
+        text: 'Error occurred',
         success: true,
         method: 'browser-fallback',
-        message: 'Using browser speech synthesis'
+        message: 'Using browser speech synthesis as fallback'
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -68,4 +99,4 @@ serve(async (req) => {
       }
     );
   }
-});
+}
